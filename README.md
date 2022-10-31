@@ -22,8 +22,8 @@ remote_transmitter:
 climate:
   - platform: climate_haier_1w       # adjust to match your AC unit!
     name: "AC"
-	receiver_id: rcvr
-	transmitter_id: trmr
+    receiver_id: rcvr
+    transmitter_id: trmr
 ```
 
 ## Additional configuration is available for this platform
