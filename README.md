@@ -29,7 +29,7 @@ climate:
 ## Additional configuration is available for this platform
 ### Configuration variables:
 
-- header_send_high (Optional, Time): time for the high part of the header on Sending for the Haier protocol. Defaults to 20`000us
+- header_send_high (Optional, Time): time for the high part of the header on Sending for the Haier protocol. Defaults to 200`000us
 - header_receive_high (Optional, Time): time for the high part of the header on Receiving for the Haier protocol. Defaults to 32`000us
 - header_send_low (Optional, Time): time for the low part of the header on sending for the Haier protocol. Defaults to 48`000us
 - header_receive_low (Optional, Time): time for the low part of the header on receiving for the Haier protocol. Defaults to 24`000us
