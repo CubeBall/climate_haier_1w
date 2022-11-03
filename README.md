@@ -24,10 +24,11 @@ remote_transmitter:
   carrier_duty_percent: 100%
 
 climate:
-  - platform: climate_haier_1w       # adjust to match your AC unit!
+  - platform: haier_1w       # adjust to match your AC unit!
     name: "AC"
     receiver_id: rcvr
     transmitter_id: trmr
+    update_interval: 5000ms
 ```
 
 ## Additional configuration is available for this platform
