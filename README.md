@@ -5,8 +5,8 @@ Custom ESPHOME componets to control Haier AC with 1-wire central remote protocol
 # Example configuration entry
 ```yaml
 external_components:
-  - source: github://CubeBall/haier_1w
-
+  - source: github://CubeBall/climate_haier_1w
+    components: [ haier_1w ]
 remote_receiver:
   id: rcvr
   pin:
@@ -24,10 +24,11 @@ remote_transmitter:
   carrier_duty_percent: 100%
 
 climate:
-  - platform: climate_haier_1w       # adjust to match your AC unit!
+  - platform: haier_1w       # adjust to match your AC unit!
     name: "AC"
     receiver_id: rcvr
     transmitter_id: trmr
+    update_interval: 5000ms
 ```
 
 ## Additional configuration is available for this platform
