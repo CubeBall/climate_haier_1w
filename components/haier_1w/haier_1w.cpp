@@ -1,10 +1,10 @@
-#include "climate_haier_1w.h"
+#include "haier_1w.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
-namespace climate_haier_1w {
+namespace haier_1w {
 
-static const char *const TAG = "climate.climate_haier_1w";
+static const char *const TAG = "Haier_1w_Climate";
 
 const uint32_t COMMAND_ON = 0x00000;
 const uint32_t COMMAND_ON_AI = 0x03000;
@@ -31,20 +31,82 @@ const uint32_t TEMP_SHIFT = 8;
 
 const uint16_t BITS = 28;
 
-void Haier1wClimate::transmit_state() {
+
+climate::ClimateTraits Haier1w::traits() {
+  auto traits = climate::ClimateTraits();
+  // traits.set_supports_current_temperature(this->sensor_ != nullptr);
+  traits.set_supported_modes({climate::CLIMATE_MODE_OFF, climate::CLIMATE_MODE_HEAT_COOL});
+  if (this->supports_cool_)
+    traits.add_supported_mode(climate::CLIMATE_MODE_COOL);
+  if (this->supports_heat_)
+    traits.add_supported_mode(climate::CLIMATE_MODE_HEAT);
+  if (this->supports_dry_)
+    traits.add_supported_mode(climate::CLIMATE_MODE_DRY);
+  if (this->supports_fan_only_)
+    traits.add_supported_mode(climate::CLIMATE_MODE_FAN_ONLY);
+
+  traits.set_supports_two_point_target_temperature(false);
+  traits.set_visual_min_temperature(this->minimum_temperature_);
+  traits.set_visual_max_temperature(this->maximum_temperature_);
+  traits.set_visual_temperature_step(this->temperature_step_);
+  traits.set_supported_fan_modes(this->fan_modes_);
+  traits.set_supported_swing_modes(this->swing_modes_);
+  // traits.set_supported_presets(false);
+  // traits.set_supported_presets(this->presets_);
+  return traits;
+}
+
+void Haier1w::setup() {
+
+}
+
+void Haier1w::update() {
+
+}
+void Haier1w::loop() {
+
+}
+void Haier1w::dump_config() {
+  LOG_CLIMATE("", "Haier 1w Climate", this);
+  ESP_LOGCONFIG(TAG, "  Min. Temperature: %.1f°C", this->minimum_temperature_);
+  ESP_LOGCONFIG(TAG, "  Max. Temperature: %.1f°C", this->maximum_temperature_);
+  ESP_LOGCONFIG(TAG, "  Supports HEAT: %s", YESNO(this->supports_heat_));
+  ESP_LOGCONFIG(TAG, "  Supports COOL: %s", YESNO(this->supports_cool_));
+}
+
+void Haier1w::control(const climate::ClimateCall &call) {
+  send_swing_cmd_ = call.get_swing_mode().has_value();
+  // swing resets after unit powered off
+  if (call.get_mode().has_value() && *call.get_mode() == climate::CLIMATE_MODE_OFF)
+    this->swing_mode = climate::CLIMATE_SWING_OFF;
+  if (call.get_mode().has_value())
+    this->mode = *call.get_mode();
+  if (call.get_target_temperature().has_value())
+    this->target_temperature = *call.get_target_temperature();
+  if (call.get_fan_mode().has_value())
+    this->fan_mode = *call.get_fan_mode();
+  if (call.get_swing_mode().has_value())
+    this->swing_mode = *call.get_swing_mode();
+  if (call.get_preset().has_value())
+    this->preset = *call.get_preset();
+  this->transmit_state();
+  this->publish_state();
+}
+
+void Haier1w::transmit_state() {
   uint32_t remote_state = 0x8800000;
 
-  // ESP_LOGD(TAG, "climate_haier_1w mode_before_ code: 0x%02X", modeBefore_);
-  if (send_swing_cmd_) {
-    send_swing_cmd_ = false;
-    remote_state |= COMMAND_SWING;
-  } else {
-    if (mode_before_ == climate::CLIMATE_MODE_OFF && this->mode == climate::CLIMATE_MODE_HEAT_COOL) {
-      remote_state |= COMMAND_ON_AI;
-    } else if (mode_before_ == climate::CLIMATE_MODE_OFF && this->mode != climate::CLIMATE_MODE_OFF) {
-      remote_state |= COMMAND_ON;
-      this->mode = climate::CLIMATE_MODE_COOL;
-    } else {
+  // ESP_LOGD(TAG, "haier_1w mode_before_ code: 0x%02X", modeBefore_);
+  // if (send_swing_cmd_) {
+  //   send_swing_cmd_ = false;
+  //   remote_state |= COMMAND_SWING;
+  // } else {
+  //   if (mode_before_ == climate::CLIMATE_MODE_OFF && this->mode == climate::CLIMATE_MODE_HEAT_COOL) {
+  //     remote_state |= COMMAND_ON_AI;
+  //   } else if (mode_before_ == climate::CLIMATE_MODE_OFF && this->mode != climate::CLIMATE_MODE_OFF) {
+  //     remote_state |= COMMAND_ON;
+  //     this->mode = climate::CLIMATE_MODE_COOL;
+  //   } else {
       switch (this->mode) {
         case climate::CLIMATE_MODE_COOL:
           remote_state |= COMMAND_COOL;
@@ -63,10 +125,10 @@ void Haier1wClimate::transmit_state() {
           remote_state |= COMMAND_OFF;
           break;
       }
-    }
-    mode_before_ = this->mode;
+    // }
+    // mode_before_ = this->mode;
 
-    ESP_LOGD(TAG, "climate_lg_ir mode code: 0x%02X", this->mode);
+    ESP_LOGD(TAG, "haier_1w mode code: 0x%02X", this->mode);
 
     if (this->mode == climate::CLIMATE_MODE_OFF) {
       remote_state |= FAN_AUTO;
@@ -97,16 +159,16 @@ void Haier1wClimate::transmit_state() {
       auto temp = (uint8_t) roundf(clamp<float>(this->target_temperature, TEMP_MIN, TEMP_MAX));
       remote_state |= ((temp - 15) << TEMP_SHIFT);
     }
-  }
-  transmit_(remote_state);
+  // }
+  this->transmit_(remote_state);
   this->publish_state();
 }
 
-bool Haier1wClimate::on_receive(remote_base::RemoteReceiveData data) {
+bool Haier1w::on_receive(remote_base::RemoteReceiveData data) {
   uint8_t nbits = 0;
   uint32_t remote_state = 0;
 
-  if (!data.expect_item(this->header_receive_high_, this->header_receive_low_))
+  if (!data.expect_item(this->header_high_, this->header_low_))
     return false;
 
   for (nbits = 0; nbits < 32; nbits++) {
@@ -171,9 +233,10 @@ bool Haier1wClimate::on_receive(remote_base::RemoteReceiveData data) {
 
   return true;
 }
-void Haier1wClimate::transmit_(uint32_t value) {
+
+void Haier1w::transmit_(uint32_t value) {
   calc_checksum_(value);
-  ESP_LOGD(TAG, "Sending climate_lg_ir code: 0x%02X", value);
+  ESP_LOGD(TAG, "Sending haier_1w code: 0x%02X", value);
 
   auto transmit = this->transmitter_->transmit();
   auto *data = transmit.get_data();
@@ -181,7 +244,7 @@ void Haier1wClimate::transmit_(uint32_t value) {
   data->set_carrier_frequency(38000);
   data->reserve(2 + BITS * 2u);
 
-  data->item(this->header_send_high_, this->header_send_low_);
+  data->item(this->header_high_, this->header_low_);
 
   for (uint32_t mask = 1UL << (BITS - 1); mask != 0; mask >>= 1) {
     if (value & mask) {
@@ -193,7 +256,7 @@ void Haier1wClimate::transmit_(uint32_t value) {
   data->mark(this->bit_high_);
   transmit.perform();
 }
-void Haier1wClimate::calc_checksum_(uint32_t &value) {
+void Haier1w::calc_checksum_(uint32_t &value) {
   uint32_t mask = 0xF;
   uint32_t sum = 0;
   for (uint8_t i = 1; i < 8; i++) {
@@ -203,5 +266,5 @@ void Haier1wClimate::calc_checksum_(uint32_t &value) {
   value |= (sum & mask);
 }
 
-}  // namespace climate_haier_1w
+}  // namespace haier_1w
 }  // namespace esphome
