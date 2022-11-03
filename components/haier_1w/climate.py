@@ -26,8 +26,10 @@ Haier1w = haier_1w_ns.class_(
     "Haier1w", climate.Climate, cg.PollingComponent, remote_base.RemoteReceiverListener
 )
 
-CONF_HEADER_HIGH = "header_high"
-CONF_HEADER_LOW = "header_low"
+CONF_SEND_HEADER_HIGH = "send_header_high"
+CONF_RECEIVE_HEADER_HIGH = "recceive_header_high"
+CONF_SEND_HEADER_LOW = "send_header_low"
+CONF_RECEIVE_HEADER_LOW = "receive_header_low"
 CONF_BIT_HIGH = "bit_high"
 CONF_BIT_ONE_LOW = "bit_one_low"
 CONF_BIT_ZERO_LOW = "bit_zero_low"
@@ -47,22 +49,25 @@ CONFIG_SCHEMA = (
         ),
         #Protocol options
         cv.Optional(
-            CONF_HEADER_HIGH, default="8000us"
+            CONF_SEND_HEADER_HIGH, default="202000us"
         ): cv.positive_time_period_microseconds,
         cv.Optional(
-            CONF_HEADER_LOW, default="4000us"
+            CONF_RECEIVE_HEADER_HIGH, default="32000us"
         ): cv.positive_time_period_microseconds,
         cv.Optional(
-            CONF_BIT_HIGH, default="600us"
+            CONF_SEND_HEADER_LOW, default="48000us"
         ): cv.positive_time_period_microseconds,
         cv.Optional(
-            CONF_BIT_ONE_LOW, default="1600us"
+            CONF_RECEIVE_HEADER_LOW, default="24000us"
         ): cv.positive_time_period_microseconds,
         cv.Optional(
-            CONF_BIT_ZERO_LOW, default="550us"
+            CONF_BIT_HIGH, default="4000us"
         ): cv.positive_time_period_microseconds,
         cv.Optional(
-            CONF_BIT_ZERO_LOW, default="550us"
+            CONF_BIT_ONE_LOW, default="16000us"
+        ): cv.positive_time_period_microseconds,
+        cv.Optional(
+            CONF_BIT_ZERO_LOW, default="4000us"
         ): cv.positive_time_period_microseconds,
         cv.Optional(
             CONF_UPDATE_INTERVAL, default="5000ms"
@@ -87,7 +92,13 @@ async def register_haier_1w(var, config):
 
     transmitter = await cg.get_variable(config[CONF_TRANSMITTER_ID])
     cg.add(var.set_transmitter(transmitter))
-    
+    cg.add(var.set_send_header_high(config[CONF_SEND_HEADER_HIGH]))
+    cg.add(var.set_receive_header_high(config[CONF_RECEIVE_HEADER_HIGH]))
+    cg.add(var.set_send_header_low(config[CONF_SEND_HEADER_LOW]))
+    cg.add(var.set_receive_header_low(config[CONF_RECEIVE_HEADER_LOW]))
+    cg.add(var.set_bit_high(config[CONF_BIT_HIGH]))
+    cg.add(var.set_bit_one_low(config[CONF_BIT_ONE_LOW]))
+    cg.add(var.set_bit_zero_low(config[CONF_BIT_ZERO_LOW]))    
 
 # #Haier1w = haier_1w_ns.class_("Haier1w", climate_ir.ClimateIR)
 # #Haier1w = cg.global_ns.class_("Haier1w", climate_ir.ClimateIR, cg.PollingComponent)

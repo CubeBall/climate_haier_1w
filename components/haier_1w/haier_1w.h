@@ -11,9 +11,9 @@ namespace esphome {
 namespace haier_1w {
 
 // Temperature
-const uint8_t TEMP_MIN = 18;  // Celsius
-const uint8_t TEMP_MAX = 30;  // Celsius
-const uint32_t POLLING_INTERVAL=5000; //ms
+const uint8_t TEMP_MIN = 16;  // Celsius
+const uint8_t TEMP_MAX = 31;  // Celsius
+// const uint32_t POLLING_INTERVAL=5000; //ms
 
 class Haier1w : public climate::Climate, public PollingComponent, public remote_base::RemoteReceiverListener {
  public:
@@ -43,8 +43,12 @@ class Haier1w : public climate::Climate, public PollingComponent, public remote_
   void set_supports_cool(bool supports_cool) { this->supports_cool_ = supports_cool; }
   void set_supports_heat(bool supports_heat) { this->supports_heat_ = supports_heat; }
   // void set_sensor(sensor::Sensor *sensor) { this->sensor_ = sensor; }
-  void set_header_high(uint32_t header_high) { this->header_high_ = header_high; }
-  void set_header_low(uint32_t header_low) { this->header_low_ = header_low; }
+  
+  //Protocol definitions
+  void set_send_header_high(uint32_t send_header_high) { this->send_header_high_ = send_header_high; }
+  void set_receive_header_high(uint32_t receive_header_high) { this->receive_header_high_ = receive_header_high; }
+  void set_send_header_low(uint32_t send_header_low) { this->send_header_low_ = send_header_low; }
+  void set_receive_header_low(uint32_t receive_header_low) { this->receive_header_low_ = receive_header_low; }
   void set_bit_high(uint32_t bit_high) { this->bit_high_ = bit_high; }
   void set_bit_one_low(uint32_t bit_one_low) { this->bit_one_low_ = bit_one_low; }
   void set_bit_zero_low(uint32_t bit_zero_low) { this->bit_zero_low_ = bit_zero_low; }
@@ -74,15 +78,24 @@ class Haier1w : public climate::Climate, public PollingComponent, public remote_
   // sensor::Sensor *sensor_{nullptr};
 
 
-  void calc_checksum_(uint32_t &value);
-  void transmit_(uint32_t value);
+  uint8_t calc_checksum_(uint8_t * message);
+  void transmit_(uint8_t * value);
+  void clear_data_(uint8_t *message);
+  String getHex_(uint8_t * message);
 
-  uint32_t header_high_;
-  uint32_t header_low_;
+  uint32_t send_header_high_;
+  uint32_t receive_header_high_;
+  uint32_t send_header_low_;
+  uint32_t receive_header_low_;
   uint32_t bit_high_;
   uint32_t bit_one_low_;
   uint32_t bit_zero_low_;
   uint32_t update_interval_;
+  
+  //Protocol Data
+  uint8_t s_data_[12];
+  uint8_t r_data_[19];
+  
 
 };
 

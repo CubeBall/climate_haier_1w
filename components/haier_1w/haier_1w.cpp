@@ -6,6 +6,28 @@ namespace haier_1w {
 
 static const char *const TAG = "Haier_1w_Climate";
 
+#define R_HEADER 0x5B
+
+
+#define R_CRC   18
+
+
+#define S_HEADER 0x5A
+#define S_CRC   11
+
+
+
+
+
+
+
+
+
+const uint16_t SEND_BITS = 12 * 8; //!!! Depends on s_data_ size
+const uint16_t RECEIVE_BITS = 19 * 8; //!!! Depends on r_data_ size
+
+
+//******************************
 const uint32_t COMMAND_ON = 0x00000;
 const uint32_t COMMAND_ON_AI = 0x03000;
 const uint32_t COMMAND_COOL = 0x08000;
@@ -29,9 +51,11 @@ const uint8_t TEMP_RANGE = TEMP_MAX - TEMP_MIN + 1;
 const uint32_t TEMP_MASK = 0XF00;
 const uint32_t TEMP_SHIFT = 8;
 
-const uint16_t BITS = 28;
+
+//******************************
 
 
+// Climate Setup
 climate::ClimateTraits Haier1w::traits() {
   auto traits = climate::ClimateTraits();
   // traits.set_supports_current_temperature(this->sensor_ != nullptr);
@@ -56,6 +80,7 @@ climate::ClimateTraits Haier1w::traits() {
   return traits;
 }
 
+// POLLING COMPONENT
 void Haier1w::setup() {
 
 }
@@ -63,9 +88,11 @@ void Haier1w::setup() {
 void Haier1w::update() {
 
 }
+
 void Haier1w::loop() {
 
 }
+
 void Haier1w::dump_config() {
   LOG_CLIMATE("", "Haier 1w Climate", this);
   ESP_LOGCONFIG(TAG, "  Min. Temperature: %.1f°C", this->minimum_temperature_);
@@ -74,6 +101,8 @@ void Haier1w::dump_config() {
   ESP_LOGCONFIG(TAG, "  Supports COOL: %s", YESNO(this->supports_cool_));
 }
 
+// CLIMATE PROTOCOL
+// Translate Control command to transmit command
 void Haier1w::control(const climate::ClimateCall &call) {
   send_swing_cmd_ = call.get_swing_mode().has_value();
   // swing resets after unit powered off
@@ -90,12 +119,15 @@ void Haier1w::control(const climate::ClimateCall &call) {
   if (call.get_preset().has_value())
     this->preset = *call.get_preset();
   this->transmit_state();
-  this->publish_state();
+  // this->publish_state(); //*** Publish only on AC Status receiving
 }
 
+
+// Transmit command
 void Haier1w::transmit_state() {
   uint32_t remote_state = 0x8800000;
-
+  //Clear Transmit buffer
+  this->clear_data_(this->s_data_);
   // ESP_LOGD(TAG, "haier_1w mode_before_ code: 0x%02X", modeBefore_);
   // if (send_swing_cmd_) {
   //   send_swing_cmd_ = false;
@@ -160,33 +192,54 @@ void Haier1w::transmit_state() {
       remote_state |= ((temp - 15) << TEMP_SHIFT);
     }
   // }
-  this->transmit_(remote_state);
-  this->publish_state();
+  this->transmit_(this->s_data_); //Prepare and transmin
+  // this->transmit_(remote_state); //Prepare and transmin
+  // this->publish_state(); //*** Publish only on AC Status receiving
 }
 
+
+// Receiving data from AC
 bool Haier1w::on_receive(remote_base::RemoteReceiveData data) {
+  uint8_t nbytes = 0;
   uint8_t nbits = 0;
+  uint8_t allnbits = 0;
   uint32_t remote_state = 0;
-
-  if (!data.expect_item(this->header_high_, this->header_low_))
+  // If header correct
+  if (!data.expect_item(this->receive_header_high_, this->receive_header_low_))
     return false;
-
-  for (nbits = 0; nbits < 32; nbits++) {
-    if (data.expect_item(this->bit_high_, this->bit_one_low_)) {
-      remote_state = (remote_state << 1) | 1;
-    } else if (data.expect_item(this->bit_high_, this->bit_zero_low_)) {
-      remote_state = (remote_state << 1) | 0;
-    } else if (nbits == BITS) {
-      break;
-    } else {
-      return false;
+  // Clear buffer
+  this->clear_data_(this->r_data_);
+  // Read bites to bytes of buffer
+  for (nbytes=0; nbytes < sizeof(this->r_data_); nbytes++) {
+    for (nbits = 0; nbits < 8; nbits++) {
+      if (data.expect_item(this->bit_high_, this->bit_one_low_)) {
+        this->r_data_[nbytes]= (this->r_data_[nbytes] << 1) | 1;
+        allnbits+=1;
+        // remote_state = (remote_state << 1) | 1;
+      } else if (data.expect_item(this->bit_high_, this->bit_zero_low_)) {
+        this->r_data_[nbytes]= (this->r_data_[nbytes] << 1) | 0;
+        allnbits+=1;
+        // remote_state = (remote_state << 1) | 0;
+      } else if (allnbits == RECEIVE_BITS) {
+        break;
+      } else {
+        return false;
+      }
     }
   }
-
-  ESP_LOGD(TAG, "Decoded 0x%02X", remote_state);
-  if ((remote_state & 0xFF00000) != 0x8800000)
+  ESP_LOGD(TAG, "Received message: %s", this->getHex_(this->r_data_));
+  //Check CRC
+  uint8_t crc=this->calc_checksum_(this->r_data_);
+  if (crc!= this->r_data_[R_CRC]) {
+    ESP_LOGW(TAG, "Invalid checksum received");
     return false;
-
+  }
+  //Check Header
+  if (this->r_data_[0] != R_HEADER) {
+    ESP_LOGW(TAG, "Invalid header received");
+    return false;
+  }
+  //***********************
   if ((remote_state & COMMAND_MASK) == COMMAND_ON) {
     this->mode = climate::CLIMATE_MODE_COOL;
   } else if ((remote_state & COMMAND_MASK) == COMMAND_ON_AI) {
@@ -229,41 +282,75 @@ bool Haier1w::on_receive(remote_base::RemoteReceiveData data) {
       }
     }
   }
-  this->publish_state();
+  this->publish_state(); // Publish AC Status received
 
   return true;
 }
 
-void Haier1w::transmit_(uint32_t value) {
-  calc_checksum_(value);
-  ESP_LOGD(TAG, "Sending haier_1w code: 0x%02X", value);
-
+// Prepare and transmit to AC
+void Haier1w::transmit_(uint8_t * value) {
+  uint8_t nbytes = 0;
+  uint8_t nbits = 0;
+  uint8_t allnbits = 0;
+  // Calc CRC
+  uint8_t crc_=calc_checksum_(value);
+  value[S_CRC]=crc_;
+  // Log
+  ESP_LOGD(TAG, "Sending message: %s", this->getHex_(value));
+  // Prepare transmit
   auto transmit = this->transmitter_->transmit();
   auto *data = transmit.get_data();
-
-  data->set_carrier_frequency(38000);
-  data->reserve(2 + BITS * 2u);
-
-  data->item(this->header_high_, this->header_low_);
-
-  for (uint32_t mask = 1UL << (BITS - 1); mask != 0; mask >>= 1) {
-    if (value & mask) {
-      data->item(this->bit_high_, this->bit_one_low_);
-    } else {
-      data->item(this->bit_high_, this->bit_zero_low_);
+  data->set_carrier_frequency(0); // No Carrier
+  data->reserve(2 + SEND_BITS * 2u);
+  // Add Header
+  data->item(this->send_header_high_, this->send_header_low_);
+  // Add bits from Bytes
+  for (nbytes=0; nbytes < sizeof(value); nbytes++){
+    for (nbits = 0; nbits < 8; nbits++) {
+      if (value[nbytes] & 1 << nbits) {
+        data->item(this->bit_high_, this->bit_one_low_);
+      } else {
+        data->item(this->bit_high_, this->bit_zero_low_);
+      }
     }
   }
+  // Add mark bit
   data->mark(this->bit_high_);
+  // Transmit
   transmit.perform();
 }
-void Haier1w::calc_checksum_(uint32_t &value) {
-  uint32_t mask = 0xF;
-  uint32_t sum = 0;
-  for (uint8_t i = 1; i < 8; i++) {
-    sum += (value & (mask << (i * 4))) >> (i * 4);
-  }
 
-  value |= (sum & mask);
+// Clear buffer
+void Haier1w::clear_data_(uint8_t *message) {
+  uint8_t nbytes = 0;
+  for(nbytes=0;nbytes < sizeof(message); nbytes++) {
+    message[nbytes]=0x00;
+  }
+}
+
+//CheckSum calc
+uint8_t Haier1w::calc_checksum_(uint8_t * message) {
+  uint8_t size = sizeof(message);
+  uint8_t position = size - 1;
+  uint8_t crc = 0;
+  for (uint8_t i = 0; i < position; i++) {
+      crc += message[i];
+  }
+  return crc;
+}
+
+// Message to HEX string
+String Haier1w::getHex_(uint8_t * message) {
+  String raw;
+  uint8_t count=sizeof(message);
+  for (uint8_t i=0; i < count; i++){
+      sprintf(&(raw[i * 3]), "%02X", message[i]);
+      if (i < count - 1) {
+        sprintf(&(raw[i * 3 + 2]), ":");
+      }
+  }
+  raw.toUpperCase();
+  return raw;
 }
 
 }  // namespace haier_1w
