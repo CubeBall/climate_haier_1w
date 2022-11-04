@@ -95,7 +95,7 @@ class Haier1w : public climate::Climate, public PollingComponent, public remote_
   //Protocol Data
   uint8_t s_data_[12];
   uint8_t r_data_[19];
-  
+  // uint8_t c_data_[12];
 
 };
 

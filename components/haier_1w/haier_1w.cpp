@@ -6,7 +6,11 @@ namespace haier_1w {
 
 static const char *const TAG = "Haier_1w_Climate";
 
-#define R_HEADER 0x5B
+
+#define _HEADER    0
+#define _TEMP_MODE  1
+
+#define R_HEADER  0x5B
 
 
 #define R_CRC   18
@@ -192,6 +196,12 @@ void Haier1w::transmit_state() {
       remote_state |= ((temp - 15) << TEMP_SHIFT);
     }
   // }
+  
+  //Send packet constants
+  s_data_[_HEADER]=S_HEADER;
+  
+
+
   this->transmit_(this->s_data_); //Prepare and transmin
   // this->transmit_(remote_state); //Prepare and transmin
   // this->publish_state(); //*** Publish only on AC Status receiving
@@ -235,10 +245,14 @@ bool Haier1w::on_receive(remote_base::RemoteReceiveData data) {
     return false;
   }
   //Check Header
-  if (this->r_data_[0] != R_HEADER) {
+  if (this->r_data_[_HEADER] != R_HEADER) {
     ESP_LOGW(TAG, "Invalid header received");
     return false;
   }
+  
+  // Copy received state to command state
+  s_data_[_TEMP_MODE]=r_data_[_TEMP_MODE]; //Mode and temp
+
   //***********************
   if ((remote_state & COMMAND_MASK) == COMMAND_ON) {
     this->mode = climate::CLIMATE_MODE_COOL;
@@ -292,6 +306,8 @@ void Haier1w::transmit_(uint8_t * value) {
   uint8_t nbytes = 0;
   uint8_t nbits = 0;
   uint8_t allnbits = 0;
+  
+  
   // Calc CRC
   uint8_t crc_=calc_checksum_(value);
   value[S_CRC]=crc_;
