@@ -64,10 +64,10 @@ CONFIG_SCHEMA = (
             CONF_BIT_HIGH, default="4000us"
         ): cv.positive_time_period_microseconds,
         cv.Optional(
-            CONF_BIT_ONE_LOW, default="16000us"
+            CONF_BIT_ONE_LOW, default="16000us" #Check for inverting
         ): cv.positive_time_period_microseconds,
         cv.Optional(
-            CONF_BIT_ZERO_LOW, default="4000us"
+            CONF_BIT_ZERO_LOW, default="4000us" #Check for inverting
         ): cv.positive_time_period_microseconds,
         cv.Optional(
             CONF_UPDATE_INTERVAL, default="5000ms"

@@ -8,10 +8,21 @@ static const char *const TAG = "Haier_1w_Climate";
 
 
 #define _HEADER    0
-#define _TEMP_MODE  1
+#define _TEMP_POWER  1
+#define TARGET_TEMP_MASK 0xF0
+#define TARGET_TEMP_SHIFT 4
+#define TARGET_TEMP_ADD 16
+#define BIT_POWER_ON 0
+
+
+
+
+
 
 #define R_HEADER  0x5B
 
+#define CURRENT_TEMP 9
+#define CURRENT_TEMP_MASK 0x01F
 
 #define R_CRC   18
 
@@ -22,7 +33,11 @@ static const char *const TAG = "Haier_1w_Climate";
 
 
 
-
+// CONTROL MODE for component_status_
+#define READY 1
+#define SENDING 2
+#define WAITING 3
+#define RECIIVING 4
 
 
 
@@ -62,47 +77,107 @@ const uint32_t TEMP_SHIFT = 8;
 // Climate Setup
 climate::ClimateTraits Haier1w::traits() {
   auto traits = climate::ClimateTraits();
-  // traits.set_supports_current_temperature(this->sensor_ != nullptr);
-  traits.set_supported_modes({climate::CLIMATE_MODE_OFF, climate::CLIMATE_MODE_HEAT_COOL});
-  if (this->supports_cool_)
-    traits.add_supported_mode(climate::CLIMATE_MODE_COOL);
-  if (this->supports_heat_)
-    traits.add_supported_mode(climate::CLIMATE_MODE_HEAT);
-  if (this->supports_dry_)
-    traits.add_supported_mode(climate::CLIMATE_MODE_DRY);
-  if (this->supports_fan_only_)
-    traits.add_supported_mode(climate::CLIMATE_MODE_FAN_ONLY);
+  traits.set_supports_current_temperature(true);
+  // // traits.set_supports_current_temperature(this->sensor_ != nullptr);
+  // traits.set_supported_modes({climate::CLIMATE_MODE_OFF, climate::CLIMATE_MODE_HEAT_COOL});
+  // if (this->supports_cool_)
+  //   traits.add_supported_mode(climate::CLIMATE_MODE_COOL);
+  // if (this->supports_heat_)
+  //   traits.add_supported_mode(climate::CLIMATE_MODE_HEAT);
+  // if (this->supports_dry_)
+  //   traits.add_supported_mode(climate::CLIMATE_MODE_DRY);
+  // if (this->supports_fan_only_)
+  //   traits.add_supported_mode(climate::CLIMATE_MODE_FAN_ONLY);
 
+  //***
+  traits.set_supported_modes(
+{
+    climate::CLIMATE_MODE_OFF,
+    climate::CLIMATE_MODE_HEAT_COOL, //
+    climate::CLIMATE_MODE_COOL,
+    climate::CLIMATE_MODE_HEAT,
+    climate::CLIMATE_MODE_FAN_ONLY,
+    climate::CLIMATE_MODE_DRY
+});
+  
+  traits.set_supported_fan_modes(
+  {
+      climate::CLIMATE_FAN_AUTO,
+      climate::CLIMATE_FAN_LOW,
+      climate::CLIMATE_FAN_MEDIUM,
+      climate::CLIMATE_FAN_HIGH,
+      climate::CLIMATE_FAN_MIDDLE,
+  });
+  traits.set_supported_swing_modes(
+  {
+      climate::CLIMATE_SWING_OFF,
+      climate::CLIMATE_SWING_BOTH,
+      climate::CLIMATE_SWING_VERTICAL,
+      climate::CLIMATE_SWING_HORIZONTAL
+  });
+
+  //***
   traits.set_supports_two_point_target_temperature(false);
-  traits.set_visual_min_temperature(this->minimum_temperature_);
-  traits.set_visual_max_temperature(this->maximum_temperature_);
-  traits.set_visual_temperature_step(this->temperature_step_);
-  traits.set_supported_fan_modes(this->fan_modes_);
-  traits.set_supported_swing_modes(this->swing_modes_);
+  traits.set_visual_min_temperature(TEMP_MIN);
+  // traits.set_visual_min_temperature(this->minimum_temperature_);
+  traits.set_visual_max_temperature(TEMP_MAX);
+  // traits.set_visual_max_temperature(this->maximum_temperature_);
+  traits.set_visual_temperature_step(1.0f);
+  // traits.set_visual_temperature_step(this->temperature_step_);
+  // traits.set_supported_fan_modes(this->fan_modes_);
+  // traits.set_supported_swing_modes(this->swing_modes_);
   // traits.set_supported_presets(false);
   // traits.set_supported_presets(this->presets_);
   return traits;
 }
 
-// POLLING COMPONENT
-void Haier1w::setup() {
-
-}
-
-void Haier1w::update() {
-
-}
-
-void Haier1w::loop() {
-
-}
-
+// Config dump
 void Haier1w::dump_config() {
   LOG_CLIMATE("", "Haier 1w Climate", this);
   ESP_LOGCONFIG(TAG, "  Min. Temperature: %.1f°C", this->minimum_temperature_);
   ESP_LOGCONFIG(TAG, "  Max. Temperature: %.1f°C", this->maximum_temperature_);
   ESP_LOGCONFIG(TAG, "  Supports HEAT: %s", YESNO(this->supports_heat_));
   ESP_LOGCONFIG(TAG, "  Supports COOL: %s", YESNO(this->supports_cool_));
+}
+
+//*** COMPONENT
+void Haier1w::setup() {
+  // Ability to send commands - only after first receiving
+  this->ready_for_command_=false;
+  // restore set points
+  auto restore = this->restore_state_();
+  if (restore.has_value()) {
+    restore->apply(this);
+  } else {
+    // restore from defaults
+    this->mode = climate::CLIMATE_MODE_OFF;
+    // initialize target temperature to some value so that it's not NAN
+    this->target_temperature =
+        roundf(clamp(this->current_temperature, this->minimum_temperature_, this->maximum_temperature_));
+    this->fan_mode = climate::CLIMATE_FAN_AUTO;
+    this->swing_mode = climate::CLIMATE_SWING_OFF;
+    this->preset = climate::CLIMATE_PRESET_NONE;
+  }
+  this->component_status_= READY;
+  this->need_update_=false;
+}
+
+// Periodical send request (by transmitting current state) or request sending
+void Haier1w::update() {
+  if (this->component_status_== READY) {
+    this->need_update_=false;
+    this->transmit_state();
+  } else {
+    this->need_update_=true;
+  }
+}
+
+// Check for pendidng command sending
+void Haier1w::loop() {
+  if (this->need_update_ && this->component_status_== READY) {
+    this->need_update_=false;
+    this->transmit_state();
+  }
 }
 
 // CLIMATE PROTOCOL
@@ -120,18 +195,23 @@ void Haier1w::control(const climate::ClimateCall &call) {
     this->fan_mode = *call.get_fan_mode();
   if (call.get_swing_mode().has_value())
     this->swing_mode = *call.get_swing_mode();
-  if (call.get_preset().has_value())
-    this->preset = *call.get_preset();
-  this->transmit_state();
+  // if (call.get_preset().has_value())
+  //   this->preset = *call.get_preset();
+  
+  // Sending or requestimg sending
+  if (this->component_status_== READY) {
+    this->transmit_state();
+    this->need_update_=false;
+  } else {
+    this->need_update_=true;
+  }
   // this->publish_state(); //*** Publish only on AC Status receiving
 }
 
-
-// Transmit command
+// Transmit full state command
 void Haier1w::transmit_state() {
   uint32_t remote_state = 0x8800000;
-  //Clear Transmit buffer
-  this->clear_data_(this->s_data_);
+  this->component_status_= SENDING;
   // ESP_LOGD(TAG, "haier_1w mode_before_ code: 0x%02X", modeBefore_);
   // if (send_swing_cmd_) {
   //   send_swing_cmd_ = false;
@@ -199,12 +279,23 @@ void Haier1w::transmit_state() {
   
   //Send packet constants
   s_data_[_HEADER]=S_HEADER;
-  
 
+  // s_data_[1]=0x00; // Temp and State
+  s_data_[2]=0x00;  // allways
+  s_data_[3]=0x00;  // allways
+  s_data_[4]=0x60;  //0x40 - some command
+  s_data_[5]=0x00;  // allways
+  //s_data_[6]=0x00;  //Mode
+  s_data_[7]=0x00;  // allways
+  s_data_[8]=0x00;  // allways
+  s_data_[9]=0x10;  //0x00 some command
+  s_data_[10]=0x01; //some data
+  //s_data_[11]=0x00; //CRC
 
   this->transmit_(this->s_data_); //Prepare and transmin
   // this->transmit_(remote_state); //Prepare and transmin
   // this->publish_state(); //*** Publish only on AC Status receiving
+  this->component_status_= WAITING;
 }
 
 
@@ -214,6 +305,7 @@ bool Haier1w::on_receive(remote_base::RemoteReceiveData data) {
   uint8_t nbits = 0;
   uint8_t allnbits = 0;
   uint32_t remote_state = 0;
+  this->component_status_= RECIIVING;
   // If header correct
   if (!data.expect_item(this->receive_header_high_, this->receive_header_low_))
     return false;
@@ -237,6 +329,9 @@ bool Haier1w::on_receive(remote_base::RemoteReceiveData data) {
       }
     }
   }
+  // Inverting Receive buffer
+  invert_r_data_();
+
   ESP_LOGD(TAG, "Received message: %s", this->getHex_(this->r_data_));
   //Check CRC
   uint8_t crc=this->calc_checksum_(this->r_data_);
@@ -251,9 +346,26 @@ bool Haier1w::on_receive(remote_base::RemoteReceiveData data) {
   }
   
   // Copy received state to command state
-  s_data_[_TEMP_MODE]=r_data_[_TEMP_MODE]; //Mode and temp
+  //s_data_[_TEMP_MODE]=r_data_[_TEMP_MODE]; //Mode and temp
 
+  // Ready for command sending
+  this->ready_for_command_=true;
   //***********************
+  
+  
+  
+  
+  // Target Temperature
+  this->target_temperature=((this->r_data_[_TEMP_POWER] & TARGET_TEMP_MASK) >> TARGET_TEMP_SHIFT) + TARGET_TEMP_ADD;
+
+  // Current temperature
+  this->current_temperature=this->r_data_[CURRENT_TEMP] & CURRENT_TEMP_MASK;
+
+  
+
+
+
+  //*** OLD
   if ((remote_state & COMMAND_MASK) == COMMAND_ON) {
     this->mode = climate::CLIMATE_MODE_COOL;
   } else if ((remote_state & COMMAND_MASK) == COMMAND_ON_AI) {
@@ -297,7 +409,7 @@ bool Haier1w::on_receive(remote_base::RemoteReceiveData data) {
     }
   }
   this->publish_state(); // Publish AC Status received
-
+  this->component_status_= READY;
   return true;
 }
 
@@ -307,10 +419,11 @@ void Haier1w::transmit_(uint8_t * value) {
   uint8_t nbits = 0;
   uint8_t allnbits = 0;
   
-  
-  // Calc CRC
+  // Calc CRC and put to last byte in value
   uint8_t crc_=calc_checksum_(value);
-  value[S_CRC]=crc_;
+  value[sizeof(value)-1]=crc_;
+  // Prepare Send buffer
+  //prepare_c_data_();
   // Log
   ESP_LOGD(TAG, "Sending message: %s", this->getHex_(value));
   // Prepare transmit
@@ -321,13 +434,19 @@ void Haier1w::transmit_(uint8_t * value) {
   // Add Header
   data->item(this->send_header_high_, this->send_header_low_);
   // Add bits from Bytes
-  for (nbytes=0; nbytes < sizeof(value); nbytes++){
+  for (nbytes=0; nbytes < sizeof(this->c_data_); nbytes++){
     for (nbits = 0; nbits < 8; nbits++) {
-      if (value[nbytes] & 1 << nbits) {
+      // Prepare items !!!! with inverting
+      if (this->c_data_[nbytes] & 1 << nbits) {
         data->item(this->bit_high_, this->bit_one_low_);
       } else {
         data->item(this->bit_high_, this->bit_zero_low_);
       }
+      // if (this->c_data_[nbytes] & 1 << nbits) {
+      //   data->item(this->bit_high_, this->bit_one_low_);
+      // } else {
+      //   data->item(this->bit_high_, this->bit_zero_low_);
+      // }
     }
   }
   // Add mark bit
@@ -336,11 +455,19 @@ void Haier1w::transmit_(uint8_t * value) {
   transmit.perform();
 }
 
-// Clear buffer
-void Haier1w::clear_data_(uint8_t *message) {
+// Invert send buffer
+void Haier1w::prepare_c_data_() {
   uint8_t nbytes = 0;
-  for(nbytes=0;nbytes < sizeof(message); nbytes++) {
-    message[nbytes]=0x00;
+  for(nbytes=0;nbytes < sizeof(this->s_data_); nbytes++) {
+    this->c_data_[nbytes]=this->s_data_[nbytes] ^ 0xFF;
+  }
+}
+
+// Invert receive buffer
+void Haier1w::invert_r_data_() {
+  uint8_t nbytes = 0;
+  for(nbytes=0;nbytes < sizeof(this->r_data_); nbytes++) {
+    this->r_data_[nbytes]^=0xFF;
   }
 }
 

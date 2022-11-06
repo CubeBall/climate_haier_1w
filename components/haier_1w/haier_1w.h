@@ -13,6 +13,7 @@ namespace haier_1w {
 // Temperature
 const uint8_t TEMP_MIN = 16;  // Celsius
 const uint8_t TEMP_MAX = 31;  // Celsius
+
 // const uint32_t POLLING_INTERVAL=5000; //ms
 
 class Haier1w : public climate::Climate, public PollingComponent, public remote_base::RemoteReceiverListener {
@@ -20,14 +21,14 @@ class Haier1w : public climate::Climate, public PollingComponent, public remote_
   Haier1w(float minimum_temperature, float maximum_temperature, float temperature_step = 1.0f,
             bool supports_dry = false, bool supports_fan_only = false, std::set<climate::ClimateFanMode> fan_modes = {},
             std::set<climate::ClimateSwingMode> swing_modes = {}, std::set<climate::ClimatePreset> presets = {}) {
-    this->minimum_temperature_ = minimum_temperature;
-    this->maximum_temperature_ = maximum_temperature;
-    this->temperature_step_ = temperature_step;
-    this->supports_dry_ = supports_dry;
-    this->supports_fan_only_ = supports_fan_only;
-    this->fan_modes_ = std::move(fan_modes);
-    this->swing_modes_ = std::move(swing_modes);
-    this->presets_ = std::move(presets);
+    // this->minimum_temperature_ = minimum_temperature;
+    // this->maximum_temperature_ = maximum_temperature;
+    // this->temperature_step_ = temperature_step;
+    // this->supports_dry_ = supports_dry;
+    // this->supports_fan_only_ = supports_fan_only;
+    // this->fan_modes_ = std::move(fan_modes);
+    // this->swing_modes_ = std::move(swing_modes);
+    // this->presets_ = std::move(presets);
     // this->update_interval_=update_interval;
   }
 
@@ -80,7 +81,8 @@ class Haier1w : public climate::Climate, public PollingComponent, public remote_
 
   uint8_t calc_checksum_(uint8_t * message);
   void transmit_(uint8_t * value);
-  void clear_data_(uint8_t *message);
+  void prepare_c_data_();
+  void invert_r_data_();
   String getHex_(uint8_t * message);
 
   uint32_t send_header_high_;
@@ -93,9 +95,12 @@ class Haier1w : public climate::Climate, public PollingComponent, public remote_
   uint32_t update_interval_;
   
   //Protocol Data
+  bool ready_for_command_;
+  bool need_update_;
+  uint8_t component_status_;
   uint8_t s_data_[12];
   uint8_t r_data_[19];
-  // uint8_t c_data_[12];
+  uint8_t c_data_[12];
 
 };
 
